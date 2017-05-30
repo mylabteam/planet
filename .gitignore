@@ -1,0 +1,8 @@
+test-jpg/
+test-jpg-additional/
+train-jpg/
+test-tif-v2/
+train-tif-v2/
+*.pyc
+*.csv
+*.hdf5
