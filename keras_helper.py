@@ -1,8 +1,9 @@
 import numpy as np
-import os
 
 from sklearn.metrics import fbeta_score
-from sklearn.model_selection import train_test_split
+#from sklearn.model_selection import train_test_split
+
+from keras.utils.io_utils import HDF5Matrix
 
 import tensorflow.contrib.keras.api.keras as k
 from tensorflow.contrib.keras.api.keras.models import Sequential
@@ -65,13 +66,13 @@ class AmazonKerasClassifier:
 
     def _get_fbeta_score(self, classifier, X_valid, y_valid):
         p_valid = classifier.predict(X_valid)
-        return fbeta_score(y_valid, np.array(p_valid) > 0.2, beta=2, average='samples')
+        if type(y_valid) is HDF5Matrix:
+            return fbeta_score(np.array(y_valid), np.array(p_valid) > 0.2, beta=2, average='samples')
+        else:
+            return fbeta_score(y_valid, np.array(p_valid) > 0.2, beta=2, average='samples')
 
-    def train_model(self, x_train, y_train, learn_rate=0.001, epoch=5, batch_size=128, validation_split_size=0.2, train_callbacks=()):
+    def train_model(self, x_train, y_train, x_valid, y_valid, learn_rate=0.001, epoch=5, batch_size=128, train_callbacks=()):
         history = LossHistory()
-
-        X_train, X_valid, y_train, y_valid = train_test_split(x_train, y_train,
-                                                              test_size=validation_split_size)
 
         opt = Adam(lr=learn_rate)
 
@@ -79,16 +80,41 @@ class AmazonKerasClassifier:
 
 
         # early stopping will auto-stop training process if model stops learning after 3 epochs
-        earlyStopping = EarlyStopping(monitor='val_loss', patience=3, verbose=0, mode='auto')
+        earlyStopping = EarlyStopping(monitor='val_loss', patience=3, verbose=2, mode='auto')
 
-        self.classifier.fit(X_train, y_train,
+        # Fix AttributeError following https://github.com/fchollet/keras/pull/6502/files
+        #self.classifier.fit(x_train, y_train, shuffle="batch", batch_size=batch_size)
+        self.classifier.fit(x_train, y_train,
+                            shuffle="batch",
                             batch_size=batch_size,
                             epochs=epoch,
-                            verbose=1,
-                            validation_data=(X_valid, y_valid),
+                            verbose=2,
+                            validation_data=(x_valid, y_valid),
                             callbacks=[history] + train_callbacks + [earlyStopping])
-        fbeta_score = self._get_fbeta_score(self.classifier, X_valid, y_valid)
+        fbeta_score = self._get_fbeta_score(self.classifier, x_valid, y_valid)
         return [history.train_losses, history.val_losses, fbeta_score]
+#    def train_model(self, x_train, y_train, learn_rate=0.001, epoch=5, batch_size=128, validation_split_size=0.2, train_callbacks=()):
+#        history = LossHistory()
+#
+#        X_train, X_valid, y_train, y_valid = train_test_split(x_train, y_train,
+#                                                              test_size=validation_split_size)
+#
+#        opt = Adam(lr=learn_rate)
+#
+#        self.classifier.compile(loss='binary_crossentropy', optimizer=opt, metrics=['accuracy'])
+#
+#
+#        # early stopping will auto-stop training process if model stops learning after 3 epochs
+#        earlyStopping = EarlyStopping(monitor='val_loss', patience=3, verbose=0, mode='auto')
+#
+#        self.classifier.fit(X_train, y_train,
+#                            batch_size=batch_size,
+#                            epochs=epoch,
+#                            verbose=1,
+#                            validation_data=(X_valid, y_valid),
+#                            callbacks=[history] + train_callbacks + [earlyStopping])
+#        fbeta_score = self._get_fbeta_score(self.classifier, X_valid, y_valid)
+#        return [history.train_losses, history.val_losses, fbeta_score]
 
     def save_weights(self, weight_file_path):
         self.classifier.save_weights(weight_file_path)

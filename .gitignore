@@ -6,3 +6,5 @@ train-tif-v2/
 *.pyc
 *.csv
 *.hdf5
+*.h5
+*.txt

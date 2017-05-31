@@ -8,7 +8,7 @@ from PIL import Image
 from itertools import chain
 from multiprocessing import cpu_count
 from concurrent.futures import ThreadPoolExecutor
-
+import matplotlib.pyplot as plt
 
 def get_jpeg_data_files_paths(data_root_folder=os.path.abspath("./")):
     """
@@ -23,6 +23,19 @@ def get_jpeg_data_files_paths(data_root_folder=os.path.abspath("./")):
     train_csv_file = os.path.join(data_root_folder, 'train_v2.csv')
     return [train_jpeg_dir, test_jpeg_dir, test_jpeg_additional, train_csv_file]
 
+
+def _get_image(img):
+    img_array = np.asarray(img.convert("RGB"), dtype=np.float32) / 255
+    # find rGg chromaticity
+    rgbsum = img_array.sum(axis=2) + np.finfo(float).eps
+    r = img_array[:,:,0] / rgbsum;
+    g = img_array[:,:,1] / rgbsum;
+    b = img_array[:,:,2] / rgbsum;
+    #rGg = np.concatenate((r[:,:,np.newaxis],g[:,:,np.newaxis],b[:,:,np.newaxis]), axis=2)
+    
+    img_array[:,:,0] = r;
+    img_array[:,:,2] = g;
+    return img_array
 
 def _train_transform_to_matrices(*args):
     """
@@ -50,7 +63,7 @@ def _train_transform_to_matrices(*args):
     # Augment the image `img` here
 
     # Convert to RGB and normalize
-    img_array = np.asarray(img.convert("RGB"), dtype=np.float32) / 255
+    img_array = _get_image(img)
 
     targets = np.zeros(len(labels_map))
     for t in tags.split(' '):
@@ -80,7 +93,8 @@ def _test_transform_to_matrices(*args):
     # Augment the image `img` here
 
     # Convert to RGB and normalize
-    img_array = np.array(img.convert("RGB"), dtype=np.float32) / 255
+    img_array = _get_image(img)
+    
     return img_array, file_name
 
 
@@ -219,3 +233,15 @@ def preprocess_data(train_set_folder, test_set_folder,
     gc.collect()
     print("Done. Size consumed by arrays {} mb".format((ret[0].nbytes + ret[1].nbytes + ret[2].nbytes) /1024/1024))
     return ret
+
+if __name__ == "__main__":
+    print('aa')
+    train_jpeg_dir, test_jpeg_dir, test_jpeg_additional, train_csv_file = get_jpeg_data_files_paths()
+    img_resize = (64, 64)
+    x_train, y_train, y_map = preprocess_train_data(train_jpeg_dir, train_csv_file, img_resize)
+    plt.figure()
+    for i in range(20):
+        plt.subplot(4,5,i+1)
+        plt.imshow(x_train[i].squeeze())
+
+    
