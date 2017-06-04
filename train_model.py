@@ -13,8 +13,11 @@ import gc
 import numpy as np
 import pandas as pd
 import tensorflow as tf
+from sklearn.metrics import fbeta_score
 from keras.utils.io_utils import HDF5Matrix
 import matplotlib.pyplot as plt
+import seaborn as sns
+from itertools import chain
 
 import data_helper
 from keras_helper import AmazonKerasClassifier
@@ -28,14 +31,16 @@ print(tf.__version__)
 ## Inspect image labels
 # Visualize what the training set looks like
 
-train_jpeg_dir, test_jpeg_dir, test_jpeg_additional, train_csv_file = data_helper.get_jpeg_data_files_paths()
+_, _, _, train_csv_file, _, _ = data_helper.get_data_files_paths()
 
 # <codecell>
-h5_train_file = "results/train_rGg.h5"
-h5_test_file = "results/test_rGg.h5"
-h5_test_add_file = "results/test_additional_rGg.h5"
+h5_train_file = "results/train_tif.h5"
+h5_test_file = "results/test_tif.h5"
+#h5_test_add_file = "results/test_additional_rGg.h5"
+filepath="weights.best_tif.hdf5"
 # Hyperparameters: choose your hyperparameters below for training. 
 img_resize = (64, 64) # The resize size of each image
+img_channels = 4
 validation_split_size = 0.2
 batch_size = 128
 
@@ -45,7 +50,6 @@ batch_size = 128
 # Creating a checkpoint saves the best model weights across all epochs in the training process. This ensures that we will always use only the best weights when making our predictions on the test set rather than using the default which takes the final score from the last epoch. 
 from tensorflow.contrib.keras.api.keras.callbacks import ModelCheckpoint
 
-filepath="weights.best_rGg.hdf5"
 checkpoint = ModelCheckpoint(filepath, monitor='val_acc', verbose=1, save_best_only=True)
 
 # <codecell>
@@ -72,7 +76,7 @@ y_valid = HDF5Matrix(h5_train_file, "y_train", start=N_split, end=N_train)
 # Here we define the model and begin training. 
 # Note that we have created a learning rate annealing schedule with a series of learning rates as defined in the array `learn_rates` and corresponding number of epochs for each `epochs_arr`. Feel free to change these values if you like or just use the defaults. 
 classifier = AmazonKerasClassifier()
-classifier.add_conv_layer(img_resize)
+classifier.add_conv_layer(img_resize, img_channels)
 classifier.add_flatten_layer()
 classifier.add_ann_layer(len(y_map))
 
@@ -85,13 +89,22 @@ for learn_rate, epochs in zip(learn_rates, epochs_arr):
                                                                            train_callbacks=[checkpoint])
     train_losses += tmp_train_losses
     val_losses += tmp_val_losses
+    y_pred = classifier.predict(x_valid)
+    f2samples = fbeta_score(np.array(y_valid), y_pred > 0.2, beta=2, average='samples')
+    print("F2 samples = {}".format(f2samples))
 
 # <codecell>
 # ## Load Best Weights
 # Here you should load back in the best weights that were automatically saved by ModelCheckpoint during training
 classifier.load_weights(filepath)
 print("Weights loaded")
+y_pred = classifier.predict(x_valid)
+f2 = fbeta_score(np.array(y_valid), y_pred > 0.2, beta=2, average=None)
 
+sns.barplot(x=f2,y=y_map.values())
+
+f2samples = fbeta_score(np.array(y_valid), y_pred > 0.2, beta=2, average="samples")
+print("F2 samples = {}".format(f2samples))
 # <codecell>
 # ## Monitor the results
 # Check that we do not overfit by plotting the losses of the train and validation sets
@@ -101,9 +114,8 @@ plt.legend();
 
 # <codecell>
 # Look at our fbeta_score
-print(fbeta_score)
+print("mean Fbeta score = {}".format(fbeta_score))
 gc.collect()
-
 
 # <codecell>
 # Predict the labels of our x_test images
@@ -116,33 +128,25 @@ predictions = classifier.predict(x_test)
 gc.collect()
 
 # <codecell>
-# Predict the labels of our x_test images
-x_test = HDF5Matrix(h5_test_add_file, "x_test")
-# to read filename
-with h5py.File(h5_test_add_file, "r") as f:
-    x_test_filename_additional = f["x_test_filename"][()].tolist()
-new_predictions = classifier.predict(x_test)
-
-del x_test
-gc.collect()
+## Predict the labels of our x_test images
+#x_test = HDF5Matrix(h5_test_add_file, "x_test")
+## to read filename
+#with h5py.File(h5_test_add_file, "r") as f:
+#    x_test_filename_additional = f["x_test_filename"][()].tolist()
+#new_predictions = classifier.predict(x_test)
+#
+#del x_test
+#gc.collect()
 
 # <codecell>
-predictions = np.vstack((predictions, new_predictions))
-x_test_filename = np.hstack((x_test_filename, x_test_filename_additional))
+#predictions = np.vstack((predictions, new_predictions))
+#x_test_filename = np.hstack((x_test_filename, x_test_filename_additional))
 print("Predictions shape: {}\nFiles name shape: {}\n1st predictions entry:\n{}".format(predictions.shape, 
-                                                                              x_test_filename.shape,
+                                                                              np.array(x_test_filename).shape,
                                                                               predictions[0]))
 
 
 # <codecell>
-import seaborn as sns
-from itertools import chain
-labels_df = pd.read_csv(train_csv_file)
-labels_list = list(chain.from_iterable([tags.split(" ") for tags in labels_df['tags'].values]))
-labels_set = set(labels_list)
-# For now we'll just put all thresholds to 0.2 
-thresholds = [0.2] * len(labels_set)
-
 # TODO complete
 tags_pred = np.array(predictions).T
 _, axs = plt.subplots(5, 4, figsize=(15, 20))
@@ -152,22 +156,23 @@ for i, tag_vals in enumerate(tags_pred):
     sns.boxplot(tag_vals, orient='v', palette='Set2', ax=axs[i]).set_title(y_map[i])
 
 # <markdowncell>
-# Now lets map our predictions to their tags and use the thresholds we just retrieved
 # <codecell>
-predicted_labels = classifier.map_predictions(predictions, y_map, thresholds)
-# <markdowncell>
+# For now we'll just put all thresholds to 0.2 
+thresholds = np.repeat(0.2, len(y_map.values()))
+# Now lets map our predictions to their tags and use the thresholds we just retrieved
+predicted_labels = []
+for i in range(predictions.shape[0]):
+    predicted_labels.append( [y_map[x] for x in np.where(predictions[i] > thresholds)[0]] )
 
 # <codecell>
 # Finally lets assemble and visualize our prediction for the test dataset
-tags_list = [None] * len(predicted_labels)
-for i, tags in enumerate(predicted_labels):
-    tags_list[i] = ' '.join(map(str, tags))
-
+tags_list = [' '.join(tags) for i, tags in enumerate(predicted_labels)]
 final_data = [[filename.split(".")[0], tags] for filename, tags in zip(x_test_filename, tags_list)]
-
-# <codecell>
 final_df = pd.DataFrame(final_data, columns=['image_name', 'tags'])
 print(final_df.head())
+# And save it to a submission file
+#final_df.to_csv('submission_file_tif.csv', index=False)
+#classifier.close()
 
 # <codecell>
 tags_s = pd.Series(list(chain.from_iterable(predicted_labels))).value_counts()
@@ -177,8 +182,3 @@ sns.barplot(x=tags_s, y=tags_s.index, orient='h');
 # <markdowncell>
 # If there is a lot of `primary` and `clear` tags, this final dataset may be legit...
 # <markdowncell>
-
-# <codecell>
-# And save it to a submission file
-final_df.to_csv('submission_file_rGg.csv', index=False)
-classifier.close()
