@@ -1,10 +1,9 @@
 import numpy as np
-
+import json
 from sklearn.metrics import fbeta_score
 #from sklearn.model_selection import train_test_split
-
 from keras.utils.io_utils import HDF5Matrix
-
+from keras.models import model_from_json
 import tensorflow.contrib.keras.api.keras as k
 from tensorflow.contrib.keras.api.keras.models import Sequential
 from tensorflow.contrib.keras.api.keras.layers import Dense, Dropout, Flatten
@@ -118,9 +117,19 @@ class AmazonKerasClassifier:
 
     def save_weights(self, weight_file_path):
         self.classifier.save_weights(weight_file_path)
-
+    
+    def save_model(self, model_file_path):
+        json_string = self.classifier.to_json()
+        with open(model_file_path, 'w') as f:
+            json.dump(json_string, f)
+        
     def load_weights(self, weight_file_path):
         self.classifier.load_weights(weight_file_path)
+
+    def load_model(self, model_file_path):
+        with open(model_file_path, 'r') as f:
+            json_string = json.load(f)
+            self.classifier = model_from_json(json_string)
 
     def predict(self, x_test):
         predictions = self.classifier.predict(x_test)

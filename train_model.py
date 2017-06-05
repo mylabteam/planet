@@ -34,13 +34,15 @@ print(tf.__version__)
 _, _, _, train_csv_file, _, _ = data_helper.get_data_files_paths()
 
 # <codecell>
-h5_train_file = "results/train_tif.h5"
-h5_test_file = "results/test_tif.h5"
+h5_train_file="results/train_tif_rgb.h5"
+h5_test_file="results/test_tif_rgb.h5"
 #h5_test_add_file = "results/test_additional_rGg.h5"
-filepath="weights.best_tif.hdf5"
+model_filepath="weights.best_tif_rgb"
+submission_file="submission_file_tif_rgb.csv"
+
 # Hyperparameters: choose your hyperparameters below for training. 
 img_resize = (64, 64) # The resize size of each image
-img_channels = 4
+img_channels = 3
 validation_split_size = 0.2
 batch_size = 128
 
@@ -50,7 +52,7 @@ batch_size = 128
 # Creating a checkpoint saves the best model weights across all epochs in the training process. This ensures that we will always use only the best weights when making our predictions on the test set rather than using the default which takes the final score from the last epoch. 
 from tensorflow.contrib.keras.api.keras.callbacks import ModelCheckpoint
 
-checkpoint = ModelCheckpoint(filepath, monitor='val_acc', verbose=1, save_best_only=True)
+checkpoint = ModelCheckpoint(model_filepath+".hdf5", monitor='val_acc', verbose=1, save_best_only=True)
 
 # <codecell>
 # Load data
@@ -79,12 +81,13 @@ classifier = AmazonKerasClassifier()
 classifier.add_conv_layer(img_resize, img_channels)
 classifier.add_flatten_layer()
 classifier.add_ann_layer(len(y_map))
+classifier.save_model(model_filepath+".json")
 
 train_losses, val_losses = [], []
 epochs_arr = [10, 5, 5]
 learn_rates = [0.001, 0.0001, 0.00001]
 for learn_rate, epochs in zip(learn_rates, epochs_arr):
-    tmp_train_losses, tmp_val_losses, fbeta_score = classifier.train_model(x_train, y_train, x_valid, y_valid,
+    tmp_train_losses, tmp_val_losses, fbeta_sc = classifier.train_model(x_train, y_train, x_valid, y_valid,
                                                                            learn_rate, epochs, batch_size, 
                                                                            train_callbacks=[checkpoint])
     train_losses += tmp_train_losses
@@ -96,7 +99,7 @@ for learn_rate, epochs in zip(learn_rates, epochs_arr):
 # <codecell>
 # ## Load Best Weights
 # Here you should load back in the best weights that were automatically saved by ModelCheckpoint during training
-classifier.load_weights(filepath)
+classifier.load_weights(model_filepath+".hdf5")
 print("Weights loaded")
 y_pred = classifier.predict(x_valid)
 f2 = fbeta_score(np.array(y_valid), y_pred > 0.2, beta=2, average=None)
@@ -171,14 +174,15 @@ final_data = [[filename.split(".")[0], tags] for filename, tags in zip(x_test_fi
 final_df = pd.DataFrame(final_data, columns=['image_name', 'tags'])
 print(final_df.head())
 # And save it to a submission file
-#final_df.to_csv('submission_file_tif.csv', index=False)
-#classifier.close()
+final_df.to_csv(submission_file, index=False)
+classifier.close()
 
 # <codecell>
 tags_s = pd.Series(list(chain.from_iterable(predicted_labels))).value_counts()
 fig, ax = plt.subplots(figsize=(16, 8))
 sns.barplot(x=tags_s, y=tags_s.index, orient='h');
-
+for p in ax.patches:
+    ax.annotate('%{:.1f}'.format(p.get_width()), (p.get_width()+50, p.get_y()+0.1))
 # <markdowncell>
 # If there is a lot of `primary` and `clear` tags, this final dataset may be legit...
 # <markdowncell>
