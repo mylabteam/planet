@@ -34,11 +34,11 @@ print(tf.__version__)
 _, _, _, train_csv_file, _, _ = data_helper.get_data_files_paths()
 
 # <codecell>
-h5_train_file="results/train_tif_rgb.h5"
-h5_test_file="results/test_tif_rgb.h5"
+h5_train_file = "results/train_jpg_rgb.h5"
+h5_test_file = "results/test_jpg_rgb.h5"
 #h5_test_add_file = "results/test_additional_rGg.h5"
-model_filepath="weights.best_tif_rgb"
-submission_file="submission_file_tif_rgb.csv"
+model_filepath="weights.best_jpg_rgb"
+submission_file="submission_file_jpg_rgb.csv"
 
 # Hyperparameters: choose your hyperparameters below for training. 
 img_resize = (64, 64) # The resize size of each image
@@ -78,6 +78,7 @@ y_valid = HDF5Matrix(h5_train_file, "y_train", start=N_split, end=N_train)
 # Here we define the model and begin training. 
 # Note that we have created a learning rate annealing schedule with a series of learning rates as defined in the array `learn_rates` and corresponding number of epochs for each `epochs_arr`. Feel free to change these values if you like or just use the defaults. 
 classifier = AmazonKerasClassifier()
+#classifier.load_model(model_filepath+".json")       # load model
 classifier.add_conv_layer(img_resize, img_channels)
 classifier.add_flatten_layer()
 classifier.add_ann_layer(len(y_map))
@@ -111,13 +112,14 @@ print("F2 samples = {}".format(f2samples))
 # <codecell>
 # ## Monitor the results
 # Check that we do not overfit by plotting the losses of the train and validation sets
+plt.figure()
 plt.plot(train_losses, label='Training loss')
 plt.plot(val_losses, label='Validation loss')
 plt.legend();
 
 # <codecell>
 # Look at our fbeta_score
-print("mean Fbeta score = {}".format(fbeta_score))
+print("mean Fbeta score = {}".format(fbeta_sc))
 gc.collect()
 
 # <codecell>
@@ -131,23 +133,11 @@ predictions = classifier.predict(x_test)
 gc.collect()
 
 # <codecell>
-## Predict the labels of our x_test images
-#x_test = HDF5Matrix(h5_test_add_file, "x_test")
-## to read filename
-#with h5py.File(h5_test_add_file, "r") as f:
-#    x_test_filename_additional = f["x_test_filename"][()].tolist()
-#new_predictions = classifier.predict(x_test)
-#
-#del x_test
-#gc.collect()
-
-# <codecell>
 #predictions = np.vstack((predictions, new_predictions))
 #x_test_filename = np.hstack((x_test_filename, x_test_filename_additional))
 print("Predictions shape: {}\nFiles name shape: {}\n1st predictions entry:\n{}".format(predictions.shape, 
                                                                               np.array(x_test_filename).shape,
                                                                               predictions[0]))
-
 
 # <codecell>
 # TODO complete
@@ -182,7 +172,7 @@ tags_s = pd.Series(list(chain.from_iterable(predicted_labels))).value_counts()
 fig, ax = plt.subplots(figsize=(16, 8))
 sns.barplot(x=tags_s, y=tags_s.index, orient='h');
 for p in ax.patches:
-    ax.annotate('%{:.1f}'.format(p.get_width()), (p.get_width()+50, p.get_y()+0.1))
+    ax.annotate('{:.0f}'.format(p.get_width()), (p.get_width()+50, p.get_y()+0.5))
 # <markdowncell>
 # If there is a lot of `primary` and `clear` tags, this final dataset may be legit...
 # <markdowncell>

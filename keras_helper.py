@@ -62,6 +62,7 @@ class AmazonKerasClassifier:
         self.classifier.add(BatchNormalization())
         self.classifier.add(Dropout(0.5))
         self.classifier.add(Dense(output_size, activation='sigmoid'))
+        print(self.classifier.summary())
 
     def _get_fbeta_score(self, classifier, X_valid, y_valid):
         p_valid = classifier.predict(X_valid)

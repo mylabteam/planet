@@ -42,16 +42,16 @@ def get_file_tag_list(train_csv_file, train_set_folder, ext='tif'):
 
 def _get_image(img, img_resize):
     img_array = resize(img, img_resize)
-    #img_array = np.asarray(img.convert("RGB"), dtype=np.float32) / 255
+    img_array = skimage.img_as_float(img_array)
     # find rGg chromaticity
-    rgbsum = img_array.sum(axis=2) + np.finfo(float).eps
-    r = img_array[:,:,0] / rgbsum;
-    g = img_array[:,:,1] / rgbsum;
-    b = img_array[:,:,2] / rgbsum;
+    #rgbsum = img_array.sum(axis=2) + np.finfo(float).eps
+    #r = img_array[:,:,0] / rgbsum;
+    #g = img_array[:,:,1] / rgbsum;
+    #b = img_array[:,:,2] / rgbsum;
     #rGg = np.concatenate((r[:,:,np.newaxis],g[:,:,np.newaxis],b[:,:,np.newaxis]), axis=2)
     
-    img_array[:,:,0] = r;
-    img_array[:,:,2] = g;
+    #img_array[:,:,0] = r;
+    #img_array[:,:,2] = g;
     return img_array
 
 

@@ -8,3 +8,4 @@ train-tif-v2/
 *.hdf5
 *.h5
 *.txt
+*.json
