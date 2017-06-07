@@ -4,6 +4,7 @@ from sklearn.metrics import fbeta_score
 #from sklearn.model_selection import train_test_split
 from keras.utils.io_utils import HDF5Matrix
 from keras.models import model_from_json
+from keras.preprocessing.image import ImageDataGenerator
 import tensorflow.contrib.keras.api.keras as k
 from tensorflow.contrib.keras.api.keras.models import Sequential
 from tensorflow.contrib.keras.api.keras.layers import Dense, Dropout, Flatten
@@ -81,7 +82,22 @@ class AmazonKerasClassifier:
 
         # early stopping will auto-stop training process if model stops learning after 3 epochs
         earlyStopping = EarlyStopping(monitor='val_loss', patience=3, verbose=2, mode='auto')
-
+        
+#        datagen = ImageDataGenerator(
+#                width_shift_range=0.1,
+#                height_shift_range=0.1,
+#                fill_mode="reflect",
+#                horizontal_flip=True,
+#                vertical_flip=True)
+#
+#        # fits the model on batches with real-time data augmentation:
+#        self.classifier.fit_generator(datagen.flow(x_train, y_train, batch_size=batch_size),
+#                            steps_per_epoch=len(x_train) / batch_size,
+#                            epochs=epoch,
+#                            verbose=2,
+#                            validation_data=(x_valid, y_valid),
+#                            callbacks=[history] + train_callbacks + [earlyStopping])
+                
         # Fix AttributeError following https://github.com/fchollet/keras/pull/6502/files
         #self.classifier.fit(x_train, y_train, shuffle="batch", batch_size=batch_size)
         self.classifier.fit(x_train, y_train,
@@ -153,3 +169,42 @@ class AmazonKerasClassifier:
 
     def close(self):
         backend.clear_session()
+
+
+if __name__ == "__main__":
+    import h5py
+    import matplotlib.pyplot as plt
+    validation_split_size = 0.2
+    h5_train_file = "results/train_jpg_rgb.h5"
+    h5_test_file = "results/test_jpg_rgb.h5"
+    
+    with h5py.File(h5_train_file, "r") as f:
+        N_train = f["x_train"].shape[0]
+        my_array = f["y_map"][()].tolist()
+        y_map = {int(key):value for key, value in [tuple(x.split("=")) for x in my_array]}
+    
+    N_split = int(round(N_train * (1-validation_split_size)))
+    
+    x_train = HDF5Matrix(h5_train_file, "x_train", start=0, end=N_split)
+    y_train = HDF5Matrix(h5_train_file, "y_train", start=0, end=N_split)
+    # %%
+    X = x_train[10500]
+    plt.figure()
+    plt.subplot(4,5,1)
+    plt.imshow(X)
+    plt.title('original')
+    
+    datagen = ImageDataGenerator(
+                rotation_range=90,
+                width_shift_range=0.1,
+                height_shift_range=0.1,
+                fill_mode="reflect",
+                horizontal_flip=True,
+                vertical_flip=True)
+    i = 2
+    for batch in datagen.flow(X.reshape(1,64,64,3), batch_size=1):
+        plt.subplot(4,5,i)
+        plt.imshow(batch.squeeze())
+        i += 1
+        if i > 20:
+            break

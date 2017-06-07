@@ -9,3 +9,4 @@ train-tif-v2/
 *.h5
 *.txt
 *.json
+*.html

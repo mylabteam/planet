@@ -16,8 +16,9 @@ import pandas as pd
 from multiprocessing import cpu_count
 from concurrent.futures import ThreadPoolExecutor
 from tqdm import tqdm
-
 import data_helper
+import random
+random.seed(42)
 
 
 if not os.path.isdir("results"):
