@@ -4,12 +4,13 @@ from sklearn.metrics import fbeta_score
 #from sklearn.model_selection import train_test_split
 from keras.utils.io_utils import HDF5Matrix
 from keras.models import model_from_json
+from keras.optimizers import Adam
 from keras.preprocessing.image import ImageDataGenerator
 import tensorflow.contrib.keras.api.keras as k
 from tensorflow.contrib.keras.api.keras.models import Sequential
 from tensorflow.contrib.keras.api.keras.layers import Dense, Dropout, Flatten
 from tensorflow.contrib.keras.api.keras.layers import Conv2D, MaxPooling2D, BatchNormalization
-from tensorflow.contrib.keras.api.keras.optimizers import Adam
+#from tensorflow.contrib.keras.api.keras.optimizers import Adam
 from tensorflow.contrib.keras.api.keras.callbacks import Callback, EarlyStopping
 from tensorflow.contrib.keras import backend
 
@@ -26,9 +27,15 @@ class LossHistory(Callback):
 
 
 class AmazonKerasClassifier:
-    def __init__(self):
+    def __init__(self, model=Sequential()):
         self.losses = []
-        self.classifier = Sequential()
+        self.classifier = model
+
+    def get_model(self):
+        return self.classifier
+
+    def summary(self):
+        return self.classifier.summary()
 
     def add_conv_layer(self, img_size=(32, 32), img_channels=3):
         self.classifier.add(BatchNormalization(input_shape=(img_size[0], img_size[1], img_channels)))
@@ -63,7 +70,6 @@ class AmazonKerasClassifier:
         self.classifier.add(BatchNormalization())
         self.classifier.add(Dropout(0.5))
         self.classifier.add(Dense(output_size, activation='sigmoid'))
-        print(self.classifier.summary())
 
     def _get_fbeta_score(self, classifier, X_valid, y_valid):
         p_valid = classifier.predict(X_valid)
@@ -76,9 +82,7 @@ class AmazonKerasClassifier:
         history = LossHistory()
 
         opt = Adam(lr=learn_rate)
-
         self.classifier.compile(loss='binary_crossentropy', optimizer=opt, metrics=['accuracy'])
-
 
         # early stopping will auto-stop training process if model stops learning after 3 epochs
         earlyStopping = EarlyStopping(monitor='val_loss', patience=3, verbose=2, mode='auto')

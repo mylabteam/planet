@@ -30,10 +30,10 @@ labels_df = pd.read_csv(train_csv_file)
 print(labels_df.head())
 
 # <codecell>
-img_resize = (64, 64) # The resize size of each image
+img_resize = (256, 256) # The resize size of each image
 img_channels = 3
-h5_train_file = "results/train_jpg_rgb.h5"
-h5_test_file = "results/test_jpg_rgb.h5"
+h5_train_file = "results/train_jpg_256.h5"
+h5_test_file = "results/test_jpg_256.h5"
 #h5_test_add_file = "results/test_additional_tif.h5"
 # <markdowncell>
 
