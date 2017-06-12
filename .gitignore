@@ -3,6 +3,7 @@ test-jpg-additional/
 train-jpg/
 test-tif-v2/
 train-tif-v2/
+output/
 *.pyc
 *.csv
 *.hdf5
