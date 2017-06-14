@@ -16,11 +16,11 @@ import keras.backend as K
 import pandas as pd
 import numpy as np
 from keras_adversarial.image_grid_callback import ImageGridCallback
-
+from keras_adversarial.legacy import BatchNormalization
 from keras_adversarial import AdversarialModel, fix_names, n_choice
 from keras_adversarial import AdversarialOptimizerSimultaneous, normal_latent_sampling
 from keras.layers import LeakyReLU, Activation, Dropout, ZeroPadding2D
-from keras.layers import Conv2D, MaxPooling2D, BatchNormalization, UpSampling2D
+from keras.layers import Conv2D, MaxPooling2D, UpSampling2D
 import h5py
 import os
 
@@ -28,35 +28,51 @@ import matplotlib.pyplot as plt
 
 
 def model_generator(latent_dim, input_shape, hidden_dim=512, reg=lambda: l1(1e-7)):
+    nch = 256
     g_input = Input(shape=[latent_dim])
-    H = Dense(256 * 4 * 4)(g_input)
-    #H = BatchNormalization()(H)
+    H = Dense(nch * 14 * 14)(g_input)
+    H = BatchNormalization(mode=2)(H)
     H = Activation('relu')(H)
-    H = Reshape((4,4,256))(H)
-    
-    H = UpSampling2D(size=(2,2))(H)
-    H = Conv2D(128, (3, 3), padding='same', activation='relu')(H)
-    #H = BatchNormalization()(H)
+    H = Reshape((14, 14, nch))(H)
+    H = UpSampling2D(size=(2, 2))(H)
+    H = Conv2D(int(nch / 2), (3, 3), padding='same')(H)
+    H = BatchNormalization(mode=2, axis=1)(H)
     H = Activation('relu')(H)
-    
-    H = UpSampling2D(size=(2,2))(H)
-    H = Conv2D(64, (3, 3), padding='same', activation='relu')(H)
-    #H = BatchNormalization()(H)
+    H = Conv2D(int(nch / 4), (3, 3), padding='same')(H)
+    H = BatchNormalization(mode=2, axis=1)(H)
     H = Activation('relu')(H)
-    
-    H = UpSampling2D(size=(2,2))(H)
-    H = Conv2D(32, (3, 3), padding='same', activation='relu')(H)
-    #H = BatchNormalization()(H)
-    H = Activation('relu')(H)
-    
-    H = UpSampling2D(size=(2,2))(H)
-    H = Conv2D(32, (3, 3), padding='same', activation='relu')(H)
-    #H = BatchNormalization()(H)
-    H = Activation('relu')(H)
-    
-    H = Conv2D(3, (1, 1), padding='same', activation='relu')(H)
-    g_V = Activation('tanh')(H)
+    H = Conv2D(3, (1, 1), padding='same')(H)
+    g_V = Activation('sigmoid')(H)
     return Model(g_input, g_V)
+#    g_input = Input(shape=[latent_dim])
+#    H = Dense(128 * 8 * 8)(g_input)
+#    H = BatchNormalization()(H)
+#    H = Activation('relu')(H)
+#    H = Reshape((8,8,128))(H)
+#    
+##    H = UpSampling2D(size=(2,2))(H)
+##    H = Conv2D(128, (3, 3), padding='same', activation='relu')(H)
+##    H = BatchNormalization()(H)
+##    H = Activation('relu')(H)
+#    
+#    H = UpSampling2D(size=(2,2))(H)
+#    H = Conv2D(64, (3, 3), padding='same', activation='relu')(H)
+#    H = BatchNormalization()(H)
+#    H = Activation('relu')(H)
+#    
+#    H = UpSampling2D(size=(2,2))(H)
+#    H = Conv2D(32, (3, 3), padding='same', activation='relu')(H)
+#    H = BatchNormalization()(H)
+#    H = Activation('relu')(H)
+#    
+#    H = UpSampling2D(size=(2,2))(H)
+#    H = Conv2D(32, (3, 3), padding='same', activation='relu')(H)
+#    H = BatchNormalization()(H)
+#    H = Activation('relu')(H)
+#    
+#    H = Conv2D(3, (1, 1), padding='same', activation='relu')(H)
+#    g_V = Activation('tanh')(H)
+#    return Model(g_input, g_V)
 #    return Sequential([
 #        Dense(hidden_dim, name="generator_h1", input_dim=latent_dim, kernel_regularizer=reg()),
 #        LeakyReLU(0.2),
@@ -69,31 +85,49 @@ def model_generator(latent_dim, input_shape, hidden_dim=512, reg=lambda: l1(1e-7
 
 
 def model_encoder(latent_dim, input_shape, hidden_dim=512, reg=lambda: l1(1e-7)):
-    x = Input(input_shape, name="x")
-    h = BatchNormalization(input_shape=input_shape)(x)
-    
-    h = Conv2D(32, (3, 3),strides=(2,2), padding='same', activation='relu')(h)
-#    h = MaxPooling2D(pool_size=2)(h)
-    h = Dropout(0.25)(h)
-
-    h = Conv2D(64, (3, 3),strides=(2,2), padding='same', activation='relu')(h)
-#    h = MaxPooling2D(pool_size=2)(h)
-    h = Dropout(0.25)(h)
-
-    h = Conv2D(128, (3, 3),strides=(2,2), padding='same', activation='relu')(h)
-#    h = MaxPooling2D(pool_size=2)(h)
-    h = Dropout(0.25)(h)
-
-    h = Conv2D(256, (3, 3),strides=(2,2), padding='same', activation='relu')(h)
-#    h = MaxPooling2D(pool_size=2)(h)
-    h = Dropout(0.25)(h)
-        
-    h = Flatten()(h)
-    mu = Dense(latent_dim, name="encoder_mu", kernel_regularizer=reg())(h)
-    log_sigma_sq = Dense(latent_dim, name="encoder_log_sigma_sq", kernel_regularizer=reg())(h)
-    z = merge([mu, log_sigma_sq], mode=lambda p: p[0] + K.random_normal(K.shape(p[0])) * K.exp(p[1] / 2),
-              output_shape=lambda p: p[0])
-    return Model(x, z, name="encoder")
+    dropout_rate = 0.5
+    d_input = Input(input_shape, name="input_x")
+    nch = 128
+    H = Conv2D(int(nch / 2), (3, 3), padding='same', activation='relu')(d_input)
+    H = LeakyReLU(0.2)(H)
+    H = Dropout(dropout_rate)(H)
+    H = Conv2D(nch, (3, 3), strides=(2, 2), padding='same', activation='relu')(H)
+    H = LeakyReLU(0.2)(H)
+    H = Dropout(dropout_rate)(H)
+    H = Conv2D(2*nch, (3, 3), padding='same', activation='relu')(H)
+    H = LeakyReLU(0.2)(H)
+    H = Dropout(dropout_rate)(H)
+    H = Flatten()(H)
+    H = Dense(latent_dim)(H)
+    H = LeakyReLU(0.2)(H)
+    H = Dropout(dropout_rate)(H)
+    d_V = Dense(latent_dim, activation='sigmoid')(H)
+    return Model(d_input, d_V)
+#    x = Input(input_shape, name="x")
+#    h = BatchNormalization(input_shape=input_shape)(x)
+#    
+#    h = Conv2D(32, (3, 3),strides=(2,2), padding='same', activation='relu')(h)
+##    h = MaxPooling2D(pool_size=2)(h)
+#    h = Dropout(0.25)(h)
+#
+#    h = Conv2D(64, (3, 3),strides=(2,2), padding='same', activation='relu')(h)
+##    h = MaxPooling2D(pool_size=2)(h)
+#    h = Dropout(0.25)(h)
+#
+#    h = Conv2D(128, (3, 3),strides=(2,2), padding='same', activation='relu')(h)
+##    h = MaxPooling2D(pool_size=2)(h)
+#    h = Dropout(0.25)(h)
+#
+##    h = Conv2D(256, (3, 3),strides=(2,2), padding='same', activation='relu')(h)
+###    h = MaxPooling2D(pool_size=2)(h)
+##    h = Dropout(0.25)(h)
+#        
+#    h = Flatten()(h)
+#    mu = Dense(latent_dim, name="encoder_mu", kernel_regularizer=reg())(h)
+#    log_sigma_sq = Dense(latent_dim, name="encoder_log_sigma_sq", kernel_regularizer=reg())(h)
+#    z = merge([mu, log_sigma_sq], mode=lambda p: p[0] + K.random_normal(K.shape(p[0])) * K.exp(p[1] / 2),
+#              output_shape=lambda p: p[0])
+#    return Model(x, z, name="encoder")
 #    
 #    x = Input(input_shape, name="x")
 #    h = Flatten()(x)
@@ -108,12 +142,13 @@ def model_encoder(latent_dim, input_shape, hidden_dim=512, reg=lambda: l1(1e-7))
 #    return Model(x, z, name="encoder")
 
 
-def model_discriminator(latent_dim, output_dim=1, hidden_dim=2048,
+def model_discriminator(latent_dim, output_dim=1, hidden_dim=512,
                         reg=lambda: l1_l2(1e-7, 1e-7)):
     z = Input((latent_dim,))
-    h = z
+    h = BatchNormalization(mode=2)(z)
     h = Dense(hidden_dim, name="discriminator_h1", kernel_regularizer=reg())(h)
     h = LeakyReLU(0.2)(h)
+    h = BatchNormalization(mode=2)(h)
     h = Dense(hidden_dim, name="discriminator_h2", kernel_regularizer=reg())(h)
     h = LeakyReLU(0.2)(h)
     y = Dense(output_dim, name="discriminator_y", activation="sigmoid", kernel_regularizer=reg())(h)
@@ -124,11 +159,11 @@ def model_discriminator(latent_dim, output_dim=1, hidden_dim=2048,
 path = "output/aae"
 adversarial_optimizer = AdversarialOptimizerSimultaneous()
 # z \in R^100
-latent_dim = 1024
+latent_dim = 100
 img_channels = 3
 validation_split_size = 0.2
 # x \in R^{28x28}
-img_resize = (64, 64)
+img_resize = (28, 28)
 batch_size = 64
 input_shape = (img_resize[0], img_resize[1], img_channels)
 
@@ -178,10 +213,15 @@ with h5py.File(h5_train_file, "r") as f:
 
 N_split = int(round(N_train * (1-validation_split_size)))
 
+
 x_train = HDF5Matrix(h5_train_file, "x_train", start=0, end=N_split)
+x_train = np.array(x_train)
+x_train = x_train[:,4:60:2,4:60:2,:]
 #y_train = HDF5Matrix(h5_train_file, "y_train", start=0, end=N_split)
 
 x_valid = HDF5Matrix(h5_train_file, "x_train", start=N_split, end=N_train)
+x_valid = np.array(x_valid)
+x_valid = x_valid[:,4:60:2,4:60:2,:]
 #y_valid = HDF5Matrix(h5_train_file, "y_train", start=N_split, end=N_train)
 
 
