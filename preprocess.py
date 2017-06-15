@@ -10,6 +10,7 @@
 # **If you found this notebook useful some upvotes would be greatly appreciated! :) **
 # Start by adding the helper files to the python path
 
+import numpy as np
 import os
 import h5py
 import pandas as pd
@@ -52,7 +53,7 @@ y_train_dset = f.create_dataset("y_train", (N, len(labels_map)), dtype="i")
 
 x_train = []
 y_train = []
-checkpnt = range(0,N,1000)
+checkpnt = [i for i in range(0,N,1000)]
 if checkpnt[-1] != N:
     checkpnt.append(N)
 # Multiprocess transformation, the map() function take a function as a 1st argument
@@ -77,7 +78,7 @@ for i in range(1,len(checkpnt)):
 # save y_map
 y_map = {v: k for k, v in labels_map.items()}
 y_map_str = ["{}={}".format(k,v) for k, v in y_map.items()]
-f.create_dataset("y_map", (len(y_map_str),), "S100", y_map_str)
+f.create_dataset("y_map", (len(y_map_str),), "S100", np.array(y_map_str).astype('|S100'))
 f.flush()
 f.close()
 print("Done")
@@ -85,16 +86,15 @@ print("Done")
 # check training preprocessing results
 with h5py.File(h5_train_file, "r") as f:
     my_array = f["y_map"][()].tolist()
-    y_map = {int(key):value for key, value in [tuple(x.split("=")) for x in my_array]}
+    y_map = {int(key):value for key, value in [tuple(x.decode().split("=")) for x in my_array]}
     print("x_train shape: {}".format(f["x_train"].shape))
     print("y_train shape: {}".format(f["y_train"].shape))
     print(y_map)
 
 # <codecell>
 # Preprocess testing data and get list of filenames
-print("Get test JPEG mean std")
-jpg_path_test = ["{}/{}".format(test_jpeg_dir, filename) for filename in os.listdir(test_jpeg_dir)] + \
-                ["{}/{}".format(test_jpeg_additional, filename) for filename in os.listdir(test_jpeg_additional)]
+jpg_path_test = [(test_jpeg_dir, filename) for filename in os.listdir(test_jpeg_dir)] + \
+                [(test_jpeg_additional, filename) for filename in os.listdir(test_jpeg_additional)]
 
 # Preprocessing testing data
 f = h5py.File(h5_test_file, "w")
@@ -105,7 +105,7 @@ x_test_filename_dset = f.create_dataset("x_test_filename", (N,), "S100")
 
 x_test = []
 x_test_filename = []
-checkpnt = range(0,N,1000)
+checkpnt = [i for i in range(0,N,1000)]
 if checkpnt[-1] != N:
     checkpnt.append(N)
 # Multiprocess transformation, the map() function take a function as a 1st argument
@@ -117,13 +117,13 @@ for i in range(1,len(checkpnt)):
     filesname = files_name[checkpnt[i-1]:checkpnt[i]]
     with ThreadPoolExecutor(cpu_count()) as pool:
         for img_array, file_name in tqdm(pool.map(data_helper._test_transform_to_matrices,
-                                                  [("", file_name, img_resize, None)
-                                                   for file_name in filesname]),
+                                                  [(file_path, file_name, img_resize, None)
+                                                   for file_path, file_name in filesname]),
                                          total=checkpnt[i]-checkpnt[i-1], mininterval=1.0):
             x_test.append(img_array)
-            x_test_filename.append(file_name.split("/")[-1])
+            x_test_filename.append(file_name)
         x_test_dset[checkpnt[i-1]:checkpnt[i],:,:,:] = x_test
-        x_test_filename_dset[checkpnt[i-1]:checkpnt[i]] = x_test_filename
+        x_test_filename_dset[checkpnt[i-1]:checkpnt[i]] =  np.array(x_test_filename).astype('|S100')
         x_test = []
         x_test_filename = []
 f.flush()

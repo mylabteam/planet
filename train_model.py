@@ -66,7 +66,7 @@ checkpoint = ModelCheckpoint(model_filepath+".hdf5", monitor='val_acc', verbose=
 with h5py.File(h5_train_file, "r") as f:
     N_train = f["x_train"].shape[0]
     my_array = f["y_map"][()].tolist()
-    y_map = {int(key):value for key, value in [tuple(x.split("=")) for x in my_array]}
+    y_map = {int(key):value for key, value in [tuple(x.decode().split("=")) for x in my_array]}
 
 N_split = int(round(N_train * (1-validation_split_size)))
 #N_split = 32256

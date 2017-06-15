@@ -4,7 +4,7 @@ from sklearn.metrics import fbeta_score
 #from sklearn.model_selection import train_test_split
 from keras.utils.io_utils import HDF5Matrix
 from keras.models import model_from_json
-from keras.optimizers import Adam
+from tensorflow.contrib.keras.api.keras.optimizers import Adam
 from keras.preprocessing.image import ImageDataGenerator
 import tensorflow.contrib.keras.api.keras as k
 from tensorflow.contrib.keras.api.keras.models import Sequential
