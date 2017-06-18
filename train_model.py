@@ -13,6 +13,7 @@ import gc
 import numpy as np
 import pandas as pd
 import tensorflow as tf
+from tensorflow.contrib.keras.api.keras.callbacks import ModelCheckpoint
 from sklearn.metrics import fbeta_score, recall_score, precision_score
 from keras.utils.io_utils import HDF5Matrix
 import matplotlib.pyplot as plt
@@ -24,7 +25,7 @@ from plotly.offline import download_plotlyjs, init_notebook_mode, plot, iplot
 import plotly.graph_objs as go
 
 import data_helper
-from keras_helper import AmazonKerasClassifier
+from keras_helper import AmazonKerasClassifier, optimise_f2_thresholds
 import random
 random.seed(89)
 
@@ -43,22 +44,14 @@ _, _, _, train_csv_file, _, _ = data_helper.get_data_files_paths()
 h5_train_file = "results/train_jpg_rgb.h5"
 h5_test_file = "results/test_jpg_rgb.h5"
 #h5_test_add_file = "results/test_additional_rGg.h5"
-model_filepath="weights.best_jpg_rgb"
-submission_file="submission_file_jpg_rgb.csv"
+model_filepath="weights.wsamthr_jpg_rgb"
+submission_file="submission_wsamthr_jpg_rgb.csv"
 
 # Hyperparameters: choose your hyperparameters below for training. 
 img_resize = (64, 64) # The resize size of each image
 img_channels = 3
 validation_split_size = 0.2
 batch_size = 128
-
-# <codecell>
-# <markdowncell>
-# ## Create a checkpoint
-# Creating a checkpoint saves the best model weights across all epochs in the training process. This ensures that we will always use only the best weights when making our predictions on the test set rather than using the default which takes the final score from the last epoch. 
-from tensorflow.contrib.keras.api.keras.callbacks import ModelCheckpoint
-
-checkpoint = ModelCheckpoint(model_filepath+".hdf5", monitor='val_acc', verbose=1, save_best_only=True)
 
 # <codecell>
 # Load data
@@ -77,6 +70,12 @@ y_train = HDF5Matrix(h5_train_file, "y_train", start=0, end=N_split)
 x_valid = HDF5Matrix(h5_train_file, "x_train", start=N_split, end=N_train)
 y_valid = HDF5Matrix(h5_train_file, "y_train", start=N_split, end=N_train)
 
+y = HDF5Matrix(h5_train_file, "y_train")
+counts = np.zeros((17))
+for i in range(len(y)):
+    counts =  counts + y[i]
+w_sample = dict(zip([x for x in range(len(counts))], 1000/counts))
+#np.vectorize(lambda x: y_map.get(x,0))(y_train)
 
 # <codecell>
 # <markdowncell>
@@ -88,14 +87,17 @@ classifier = AmazonKerasClassifier()
 classifier.add_conv_layer(img_resize, img_channels)
 classifier.add_flatten_layer()
 classifier.add_ann_layer(len(y_map))
+classifier.summary()
 classifier.save_model(model_filepath+".json")
+
+checkpoint = ModelCheckpoint(model_filepath+".hdf5", monitor='val_acc', verbose=1, save_best_only=True)
 
 train_losses, val_losses = [], []
 epochs_arr = [15, 7, 7]
 learn_rates = [0.001, 0.0001, 0.00001]
 for learn_rate, epochs in zip(learn_rates, epochs_arr):
     tmp_train_losses, tmp_val_losses, fbeta_sc = classifier.train_model(x_train, y_train, x_valid, y_valid,
-                                                                           learn_rate, epochs, batch_size, 
+                                                                           learn_rate, epochs, batch_size, w_sam_map=w_sample, 
                                                                            train_callbacks=[checkpoint])
     train_losses += tmp_train_losses
     val_losses += tmp_val_losses
@@ -108,21 +110,25 @@ for learn_rate, epochs in zip(learn_rates, epochs_arr):
 # Here you should load back in the best weights that were automatically saved by ModelCheckpoint during training
 classifier.load_weights(model_filepath+".hdf5")
 print("Weights loaded")
-y_pred = classifier.predict(x_valid)
+p_pred = classifier.predict(x_valid)
 
 Y = np.array(y_valid)
 
-f2samples = fbeta_score(Y, y_pred > 0.2, beta=2, average="samples")
+thrs = optimise_f2_thresholds(Y, p_pred, y_map)
+y_pred = p_pred > thrs[np.newaxis,:]
+
+
+f2samples = fbeta_score(Y, y_pred, beta=2, average="samples")
 print("F2 samples = {}".format(f2samples))
 
-R = recall_score(Y, y_pred > 0.2, average=None)
-P = precision_score(Y, y_pred > 0.2, average=None)
-A = np.equal(Y.astype('bool'), y_pred > 0.2).sum(axis=0).astype('float') / Y.shape[0]
+R = recall_score(Y, y_pred, average=None)
+P = precision_score(Y, y_pred, average=None)
+A = np.equal(Y.astype('bool'), y_pred).sum(axis=0).astype('float') / Y.shape[0]
 C = Y.sum(axis=0)
-plot_r = go.Bar(x=y_map.values(), y=R)
-plot_p = go.Bar(x=y_map.values(), y=P)
-plot_a = go.Bar(x=y_map.values(), y=A)
-plot_c = go.Bar(x=y_map.values(), y=C)
+plot_r = go.Bar(x=list(y_map.values()), y=R)
+plot_p = go.Bar(x=list(y_map.values()), y=P)
+plot_a = go.Bar(x=list(y_map.values()), y=A)
+plot_c = go.Bar(x=list(y_map.values()), y=C)
 fig = tools.make_subplots(rows=2, cols=2, subplot_titles=('Recall', 'Precision',
                                                           'Accuracy', 'Counts'))
 fig.append_trace(plot_r, 1, 1)
@@ -130,11 +136,11 @@ fig.append_trace(plot_p, 1, 2)
 fig.append_trace(plot_a, 2, 1)
 fig.append_trace(plot_c, 2, 2)
 fig['layout'].update(height=800, width=1200, title='Score on Validation Data')
-plot(fig, filename='valid_score')
+plot(fig, filename=model_filepath+'valid_score.html')
 
-TP = np.logical_and(Y.astype('bool'), y_pred > 0.2).sum(axis=1)
+TP = np.logical_and(Y.astype('bool'), y_pred).sum(axis=1)
 Rs = TP / Y.astype('float').sum(axis=1)
-Ps = TP / (y_pred > 0.2).astype('float').sum(axis=1)
+Ps = TP / y_pred.astype('float').sum(axis=1)
 
 trace_cs = go.Histogram(x=Y.sum(axis=1))
 trace_tp = go.Histogram(x=TP)
@@ -146,9 +152,9 @@ fig.append_trace(trace_tp, 1, 2)
 fig.append_trace(trace_rs, 2, 1)
 fig.append_trace(trace_ps, 2, 2)
 fig['layout'].update(height=800, width=1200, title='Validation Sample Score')
-plot(fig, filename='sample_score')
+plot(fig, filename=model_filepath+'sample_score.html')
 
-sns.barplot(x=Y[np.where(Rs<0.6)[0]].sum(axis=0), y=y_map.values(), orient='h')
+sns.barplot(x=Y[np.where(Rs<0.6)[0]].sum(axis=0), y=list(y_map.values()), orient='h')
 
 
 # <codecell>
@@ -198,7 +204,7 @@ for i in range(predictions.shape[0]):
 # <codecell>
 # Finally lets assemble and visualize our prediction for the test dataset
 tags_list = [' '.join(tags) for i, tags in enumerate(predicted_labels)]
-final_data = [[filename.split(".")[0], tags] for filename, tags in zip(x_test_filename, tags_list)]
+final_data = [[filename.decode().split(".")[0], tags] for filename, tags in zip(x_test_filename, tags_list)]
 final_df = pd.DataFrame(final_data, columns=['image_name', 'tags'])
 print(final_df.head())
 # And save it to a submission file

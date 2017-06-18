@@ -10,3 +10,5 @@ train-tif-v2/
 *.txt
 *.json
 *.html
+began/generated
+*.hd5

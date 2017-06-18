@@ -15,6 +15,24 @@ from tensorflow.contrib.keras.api.keras.callbacks import Callback, EarlyStopping
 from tensorflow.contrib.keras import backend
 
 
+def optimise_f2_thresholds(y_test, p_pred, y_map, verbose=True, resolution=100):
+    y_test = np.array(y_test)
+    thresholds = np.repeat(0.2,17)
+    thr_tmp = np.repeat(0.2,17)
+    for i in range(17):
+        best_score = 0
+        for thr in range(resolution):
+            thr /= resolution
+            thr_tmp[i] = thr
+            score = fbeta_score(y_test, p_pred > thr_tmp[np.newaxis,:], beta=2, average='samples')
+            if score > best_score:
+                thresholds[i] = thr
+                best_score = score
+        if verbose:
+            print("Class {} Best threshold = , Give F2 = ".format(y_map[i], thresholds[i], best_score))
+        thr_tmp[i] = thresholds[i]
+    return thresholds
+
 class LossHistory(Callback):
     def __init__(self):
         super(LossHistory,self).__init__()
@@ -78,7 +96,7 @@ class AmazonKerasClassifier:
         else:
             return fbeta_score(y_valid, np.array(p_valid) > 0.2, beta=2, average='samples')
 
-    def train_model(self, x_train, y_train, x_valid, y_valid, learn_rate=0.001, epoch=5, batch_size=128, train_callbacks=()):
+    def train_model(self, x_train, y_train, x_valid, y_valid, learn_rate=0.001, epoch=5, batch_size=128, w_sam_map=None, train_callbacks=()):
         history = LossHistory()
 
         opt = Adam(lr=learn_rate)
@@ -104,12 +122,18 @@ class AmazonKerasClassifier:
                 
         # Fix AttributeError following https://github.com/fchollet/keras/pull/6502/files
         #self.classifier.fit(x_train, y_train, shuffle="batch", batch_size=batch_size)
+        if w_sam_map is None:
+            w_sam = None
+        else:
+            w_sam = np.vectorize(w_sam_map.get)(np.array(y_train))
+            w_sam = w_sam.max(axis=1)
         self.classifier.fit(x_train, y_train,
                             shuffle="batch",
                             batch_size=batch_size,
                             epochs=epoch,
                             verbose=2,
                             validation_data=(x_valid, y_valid),
+                            sample_weight=w_sam,
                             callbacks=[history] + train_callbacks + [earlyStopping])
         fbeta_score = self._get_fbeta_score(self.classifier, x_valid, y_valid)
         return [history.train_losses, history.val_losses, fbeta_score]
