@@ -15,6 +15,8 @@ import pandas as pd
 import tensorflow as tf
 from sklearn.metrics import fbeta_score, recall_score, precision_score
 from keras.utils.io_utils import HDF5Matrix
+from keras.optimizers import Adam
+from keras.preprocessing.image import ImageDataGenerator
 import matplotlib.pyplot as plt
 import seaborn as sns
 from itertools import chain
@@ -24,7 +26,8 @@ from plotly.offline import download_plotlyjs, init_notebook_mode, plot, iplot
 import plotly.graph_objs as go
 
 import data_helper
-from keras_helper import AmazonKerasClassifier
+from keras.callbacks import Callback, EarlyStopping, ReduceLROnPlateau, CSVLogger
+#from keras_helper import AmazonKerasClassifier
 import resnet
 import random
 random.seed(89)
@@ -44,14 +47,14 @@ _, _, _, train_csv_file, _, _ = data_helper.get_data_files_paths()
 h5_train_file = "results/train_jpg_256.h5"
 h5_test_file = "results/test_jpg_256.h5"
 #h5_test_add_file = "results/test_additional_rGg.h5"
-model_filepath="weights.best_jpg_resnet18_256"
-submission_file="submission_file_jpg_resnet18_256.csv"
+model_filepath="weights.best_jpg_resnet34_256"
+submission_file="submission_file_jpg_resnet34_256.csv"
 
 # Hyperparameters: choose your hyperparameters below for training. 
 img_resize = (256, 256) # The resize size of each image
 img_channels = 3
 validation_split_size = 0.2
-batch_size = 128
+batch_size = 64
 
 # <codecell>
 # <markdowncell>
@@ -80,37 +83,105 @@ y_valid = HDF5Matrix(h5_train_file, "y_train", start=N_split, end=N_train)
 
 
 # <codecell>
+
+class LossHistory(Callback):
+    def __init__(self):
+        super(LossHistory,self).__init__()
+        self.train_losses = []
+        self.val_losses = []
+
+    def on_epoch_end(self, epoch, logs={}):
+        self.train_losses.append(logs.get('loss'))
+        self.val_losses.append(logs.get('val_loss'))
+
 # <markdowncell>
 # ## Define and Train model
 # Here we define the model and begin training. 
 # Note that we have created a learning rate annealing schedule with a series of learning rates as defined in the array `learn_rates` and corresponding number of epochs for each `epochs_arr`. Feel free to change these values if you like or just use the defaults. 
-classifier = AmazonKerasClassifier(resnet.ResnetBuilder.build_resnet_18((img_channels, img_resize[0], img_resize[1]), len(y_map)) )
-#classifier.load_model(model_filepath+".json")       # load model
-#classifier.add_conv_layer(img_resize, img_channels)
-#classifier.add_flatten_layer()
-#classifier.add_ann_layer(len(y_map))
-classifier.summary()
-classifier.save_model(model_filepath+".json")
+model = resnet.ResnetBuilder.build_resnet_34((img_channels, img_resize[0], img_resize[1]), len(y_map))
 
-train_losses, val_losses = [], []
-epochs_arr = [15, 7, 7]
-learn_rates = [0.001, 0.0001, 0.00001]
-for learn_rate, epochs in zip(learn_rates, epochs_arr):
-    tmp_train_losses, tmp_val_losses, fbeta_sc = classifier.train_model(x_train, y_train, x_valid, y_valid,
-                                                                           learn_rate, epochs, batch_size, 
-                                                                           train_callbacks=[checkpoint])
-    train_losses += tmp_train_losses
-    val_losses += tmp_val_losses
-    y_pred = classifier.predict(x_valid)
-    f2samples = fbeta_score(np.array(y_valid), y_pred > 0.2, beta=2, average='samples')
-    print("F2 samples = {}".format(f2samples))
+opt = Adam(lr=0.001, decay=0.001)
+
+model.compile(loss='binary_crossentropy',
+              optimizer=opt,
+              metrics=['accuracy'])
+early_stopper = EarlyStopping(monitor='val_loss', patience=3, verbose=2, mode='auto')
+model.summary()
+
+lr_reducer = ReduceLROnPlateau(factor=np.sqrt(0.1), cooldown=0, patience=5, min_lr=0.5e-6)
+csv_logger = CSVLogger('resnet18_planet.csv')
+
+history = LossHistory()
+
+#datagen = ImageDataGenerator(
+#                width_shift_range=0,
+#                height_shift_range=0,
+#                fill_mode="reflect",
+#                horizontal_flip=True,
+#                vertical_flip=True)
+#
+
+def my_generator(x_train, y_train, batch_size=64):
+    order = np.arange(x_train.shape[0])
+    np.random.shuffle(order)
+    i = 0           # index in training data
+    n = 0           # current size of batch
+    x_batch = []
+    y_batch = []
+    while 1:
+        x = x_train[int(order[i])]
+        if np.random.randint(2):
+            x = np.fliplr(x)
+        x = np.rot90(x, k=np.random.randint(4))
+        x_batch.append(x)
+        y_batch.append(y_train[int(order[i])])
+        n = n + 1
+        if n == batch_size:
+            yield (np.array(x_batch), np.array(y_batch))
+            del x_batch[:]
+            del y_batch[:]
+            n = 0
+        if (i+1) == x_train.shape[0]:
+            np.random.shuffle(order)
+        i=(i+1) % x_train.shape[0]
+
+
+# fits the model on batches with real-time data augmentation:
+model.fit_generator(my_generator(x_train, y_train, batch_size=batch_size),#datagen.flow(x_train, y_train, batch_size=64),
+                    steps_per_epoch=int(len(x_train) / batch_size),
+                    epochs=100,
+                    verbose=2,
+                    validation_data=(x_valid, y_valid),
+                    callbacks=[history, lr_reducer, early_stopper, csv_logger, checkpoint])
+
+#model.fit(x_train, y_train,
+#              batch_size=64,
+#              epochs=100,
+#              validation_data=(x_valid, y_valid),
+#              shuffle="batch",
+#              verbose=2,
+#              callbacks=[history, lr_reducer, early_stopper, csv_logger, checkpoint])
+
+model.save_weights(model_filepath+"_final.hdf5")
+train_losses, val_losses = history.train_losses, history.val_losses
+#epochs_arr = [15, 7, 7]
+#learn_rates = [0.001, 0.0001, 0.00001]
+#for learn_rate, epochs in zip(learn_rates, epochs_arr):
+#    tmp_train_losses, tmp_val_losses, fbeta_sc = classifier.train_model(x_train, y_train, x_valid, y_valid,
+#                                                                           learn_rate, epochs, batch_size, 
+#                                                                           train_callbacks=[checkpoint])
+#    train_losses += tmp_train_losses
+#    val_losses += tmp_val_losses
+#    y_pred = classifier.predict(x_valid)
+#    f2samples = fbeta_score(np.array(y_valid), y_pred > 0.2, beta=2, average='samples')
+#    print("F2 samples = {}".format(f2samples))
 
 # <codecell>
 # ## Load Best Weights
 # Here you should load back in the best weights that were automatically saved by ModelCheckpoint during training
-classifier.load_weights(model_filepath+".hdf5")
+#model.load_weights(model_filepath+".hdf5")
 print("Weights loaded")
-y_pred = classifier.predict(x_valid)
+y_pred = model.predict(x_valid)
 
 Y = np.array(y_valid)
 
@@ -121,10 +192,10 @@ R = recall_score(Y, y_pred > 0.2, average=None)
 P = precision_score(Y, y_pred > 0.2, average=None)
 A = np.equal(Y.astype('bool'), y_pred > 0.2).sum(axis=0).astype('float') / Y.shape[0]
 C = Y.sum(axis=0)
-plot_r = go.Bar(x=y_map.values(), y=R)
-plot_p = go.Bar(x=y_map.values(), y=P)
-plot_a = go.Bar(x=y_map.values(), y=A)
-plot_c = go.Bar(x=y_map.values(), y=C)
+plot_r = go.Bar(x=list(y_map.values()), y=R)
+plot_p = go.Bar(x=list(y_map.values()), y=P)
+plot_a = go.Bar(x=list(y_map.values()), y=A)
+plot_c = go.Bar(x=list(y_map.values()), y=C)
 fig = tools.make_subplots(rows=2, cols=2, subplot_titles=('Recall', 'Precision',
                                                           'Accuracy', 'Counts'))
 fig.append_trace(plot_r, 1, 1)
@@ -132,7 +203,7 @@ fig.append_trace(plot_p, 1, 2)
 fig.append_trace(plot_a, 2, 1)
 fig.append_trace(plot_c, 2, 2)
 fig['layout'].update(height=800, width=1200, title='Score on Validation Data')
-plot(fig, filename='valid_score')
+plot(fig, filename=model_filepath+'valid_score.html')
 
 TP = np.logical_and(Y.astype('bool'), y_pred > 0.2).sum(axis=1)
 Rs = TP / Y.astype('float').sum(axis=1)
@@ -148,9 +219,9 @@ fig.append_trace(trace_tp, 1, 2)
 fig.append_trace(trace_rs, 2, 1)
 fig.append_trace(trace_ps, 2, 2)
 fig['layout'].update(height=800, width=1200, title='Validation Sample Score')
-plot(fig, filename='sample_score')
+plot(fig, filename=model_filepath+'sample_score.html')
 
-sns.barplot(x=Y[np.where(Rs<0.6)[0]].sum(axis=0), y=y_map.values(), orient='h')
+sns.barplot(x=Y[np.where(Rs<0.6)[0]].sum(axis=0), y=list(y_map.values()), orient='h')
 
 
 # <codecell>
@@ -169,7 +240,7 @@ x_test = HDF5Matrix(h5_test_file, "x_test")
 with h5py.File(h5_test_file, "r") as f:
     x_test_filename = f["x_test_filename"][()].tolist()
 # Predict the labels of our x_test images
-predictions = classifier.predict(x_test)
+predictions = model.predict(x_test)
 gc.collect()
 
 # <codecell>
@@ -200,12 +271,12 @@ for i in range(predictions.shape[0]):
 # <codecell>
 # Finally lets assemble and visualize our prediction for the test dataset
 tags_list = [' '.join(tags) for i, tags in enumerate(predicted_labels)]
-final_data = [[filename.split(".")[0], tags] for filename, tags in zip(x_test_filename, tags_list)]
+final_data = [[filename.decode().split(".")[0], tags] for filename, tags in zip(x_test_filename, tags_list)]
 final_df = pd.DataFrame(final_data, columns=['image_name', 'tags'])
 print(final_df.head())
 # And save it to a submission file
 final_df.to_csv(submission_file, index=False)
-classifier.close()
+#classifier.close()
 
 # <codecell>
 tags_s = pd.Series(list(chain.from_iterable(predicted_labels))).value_counts()
